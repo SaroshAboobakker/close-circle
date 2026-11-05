@@ -35,9 +35,39 @@ const stateRepository = {
   write(value) {
     localStorage.setItem(this.key, JSON.stringify(value));
   },
+  async load() {
+    const local = this.read();
+    try {
+      const response = await fetch('/api/state', { cache: 'no-store' });
+      if (!response.ok) throw new Error(`Shared server returned ${response.status}`);
+      const remote = await response.json();
+      setSyncStatus(true);
+      const shared = remote.state || EMPTY_STATE;
+      const combined = combineStates(shared, local);
+      if (hasContent(local)) {
+        const imported = await this.push(combined);
+        this.write(imported);
+        return imported;
+      }
+      this.write(shared);
+      return shared;
+    } catch {
+      setSyncStatus(false);
+      return local;
+    }
+  },
+  async push(value) {
+    const response = await fetch('/api/state', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value),
+    });
+    if (!response.ok) throw new Error(`Shared server returned ${response.status}`);
+    const result = await response.json();
+    setSyncStatus(true);
+    return result.state;
+  },
 };
 
-let state = stateRepository.read();
+let state = EMPTY_STATE;
 let currentUser = null;
 let page = 'home';
 const $ = selector => document.querySelector(selector);
@@ -53,6 +83,39 @@ function toast(message) {
   element.classList.add('show');
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => element.classList.remove('show'), 2600);
+}
+
+function hasContent(value) {
+  return Boolean(value.posts?.length || value.events?.length || value.ideas?.length);
+}
+
+function combineStates(remote, local) {
+  const combine = (left = [], right = []) => {
+    const records = new Map(left.map(item => [String(item.id), item]));
+    for (const item of right) {
+      const previous = records.get(String(item.id));
+      records.set(String(item.id), previous ? {
+        ...previous, ...item,
+        ...(previous.votes || item.votes ? { votes: { ...previous.votes, ...item.votes } } : {}),
+      } : item);
+    }
+    return [...records.values()];
+  };
+  return {
+    posts: combine(remote.posts, local.posts),
+    events: combine(remote.events, local.events),
+    ideas: combine(remote.ideas, local.ideas),
+  };
+}
+
+function setSyncStatus(connected) {
+  const title = $('#syncTitle');
+  const message = $('#syncMessage');
+  const badge = $('#syncBadge');
+  if (!title || !message || !badge) return;
+  title.textContent = connected ? 'Live circle' : 'Local preview';
+  message.textContent = connected ? 'Changes sync across connected devices.' : 'Start the circle server to share posts across devices.';
+  badge.innerHTML = `<span class="live-dot${connected ? '' : ' offline'}"></span> FIVE FRIENDS · ${connected ? 'LIVE SYNC' : 'LOCAL PREVIEW'}`;
 }
 
 function avatar(name, extra = '') {
@@ -95,6 +158,7 @@ function save() {
   try {
     stateRepository.write(state);
     render();
+    stateRepository.push(state).catch(() => setSyncStatus(false));
   } catch (error) {
     toast('This browser ran out of storage. Try a smaller media file.');
     console.error('Could not save Close Circle data:', error);
@@ -137,6 +201,11 @@ function eventCard(event) {
 
 function renderEvents() {
   const list = $('#eventList');
+  const count = $('#hangoutCount');
+  if (count) {
+    count.textContent = state.events.length;
+    count.hidden = state.events.length === 0;
+  }
   if (!list) return;
   list.innerHTML = state.events.slice(0, 2).map(event => {
     const [month, day] = relativeDate(event.date).split('|');
@@ -182,23 +251,23 @@ function openCompose(type = 'post') {
   if (!currentUser) return showUserPicker();
   if (type === 'event') {
     showModal('Plan a hangout', `<p class="modal-help">Suggest a plan and everyone can vote on it.</p><div class="field"><label>What are we doing?</label><input name="title" required placeholder="e.g. Dinner and a movie"></div><div class="field"><label>When?</label><input name="date" type="date" required><input name="time" type="time" value="18:30"></div><div class="field"><label>Where?</label><input name="place" placeholder="A place, or TBD"></div>`, 'Create poll', form => {
-      const event = { id: newId(), title: form.get('title'), date: form.get('date'), time: new Date(`2000-01-01T${form.get('time')}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }), place: form.get('place') || 'Location TBD', votes: {}, by: currentUser };
+      const event = { id: newId(), createdAt: new Date().toISOString(), title: form.get('title'), date: form.get('date'), time: new Date(`2000-01-01T${form.get('time')}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }), place: form.get('place') || 'Location TBD', votes: {}, by: currentUser };
       state.events.unshift(event);
-      state.posts.unshift({ id: newId(), author: currentUser, time: 'Just now', text: 'New hangout idea—cast your vote!', kind: 'event', event, likes: 0, comments: 0 });
+      state.posts.unshift({ id: newId(), createdAt: new Date().toISOString(), author: currentUser, time: 'Just now', text: 'New hangout idea—cast your vote!', kind: 'event', event, likes: 0, comments: 0 });
       save(); setPage('hangouts'); toast('Hangout poll is up!');
     });
     return;
   }
   if (type === 'idea') {
     showModal('Pitch an idea', `<p class="modal-help">Big, small, half-baked — put it on the board.</p><div class="field"><label>Your idea</label><input name="idea" required placeholder="e.g. Take a day trip upstate"></div><div class="field"><label>A little more (optional)</label><textarea name="details" placeholder="What makes it sound fun?"></textarea></div>`, 'Add to the board', form => {
-      state.ideas.unshift({ id: newId(), title: form.get('idea'), by: currentUser, votes: 0, voters: [], details: form.get('details') });
+      state.ideas.unshift({ id: newId(), createdAt: new Date().toISOString(), title: form.get('idea'), by: currentUser, votes: 0, voters: [], details: form.get('details') });
       save(); setPage('ideas'); toast('Idea added to the board');
     });
     return;
   }
   showModal('Share with your circle', `<div class="field"><label>Say something</label><textarea name="text" placeholder="What’s on your mind?" required></textarea></div><div class="file-drop" id="dropFiles"><strong>▧ &nbsp;Add photos or videos</strong>Choose files from your device · saved in this browser</div><input type="file" name="media" id="modalFile" accept="image/*,video/*" multiple hidden>`, 'Post it', form => {
     const files = Array.from($('#modalFile').files);
-    const addPost = (file, url) => state.posts.unshift({ id: newId(), author: currentUser, time: 'Just now', text: form.get('text'), kind: file ? (file.type.startsWith('video') ? 'video' : 'photo') : 'note', url, fileName: file?.name, likes: 0, comments: 0 });
+    const addPost = (file, url) => state.posts.unshift({ id: newId(), createdAt: new Date().toISOString(), author: currentUser, time: 'Just now', text: form.get('text'), kind: file ? (file.type.startsWith('video') ? 'video' : 'photo') : 'note', url, fileName: file?.name, likes: 0, comments: 0 });
     if (files.length) {
       files.forEach(file => {
         const reader = new FileReader();
@@ -208,7 +277,7 @@ function openCompose(type = 'post') {
       });
       toast('Saving your post…');
     } else {
-      addPost(null, null); save(); toast('Post saved in this browser');
+      addPost(null, null); save(); toast('Post shared with the circle');
     }
   });
   $('#dropFiles').onclick = () => $('#modalFile').click();
@@ -254,9 +323,32 @@ $('#searchBtn').onclick = () => {
 };
 $('#filterBtn').onclick = () => toast('Showing all posts');
 $('#loadMore').onclick = () => toast('You’re all caught up');
+async function refreshSharedState() {
+  try {
+    const response = await fetch('/api/state', { cache: 'no-store' });
+    if (!response.ok) throw new Error('Shared server is unavailable');
+    const remote = await response.json();
+    const shared = remote.state || EMPTY_STATE;
+    if (JSON.stringify(shared) !== JSON.stringify(state)) {
+      state = shared;
+      stateRepository.write(state);
+      render();
+    }
+    setSyncStatus(true);
+  } catch {
+    setSyncStatus(false);
+  }
+}
+
+async function startApp() {
+  state = await stateRepository.load();
+  render();
+  showUserPicker();
+  setInterval(refreshSharedState, 2500);
+}
+
 window.addEventListener('storage', event => {
   if (event.key === stateRepository.key) { state = stateRepository.read(); render(); }
 });
-window.addEventListener('focus', () => { state = stateRepository.read(); render(); });
-render();
-showUserPicker();
+window.addEventListener('focus', () => { state = stateRepository.read(); render(); refreshSharedState(); });
+startApp();

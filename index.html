@@ -14,19 +14,19 @@
       <div class="space-label">YOUR SPACE</div>
       <nav class="nav" aria-label="Main navigation">
         <button class="nav-item active" data-page="home"><span>⌂</span> Home <kbd>⌘ 1</kbd></button>
-        <button class="nav-item" data-page="hangouts"><span>▦</span> Hangouts <i class="nav-count">2</i></button>
+        <button class="nav-item" data-page="hangouts"><span>▦</span> Hangouts <i class="nav-count" id="hangoutCount" hidden></i></button>
         <button class="nav-item" data-page="ideas"><span>✧</span> Idea board</button>
         <button class="nav-item" data-page="memories"><span>▧</span> Memories</button>
       </nav>
       <div class="side-bottom">
-        <div class="privacy-note demo-note"><span class="lock">◈</span><div><b>Browser saved posts</b><p>Posts stay in this browser. They don’t sync to friends yet.</p></div></div>
+        <div class="privacy-note demo-note"><span class="lock">◈</span><div><b id="syncTitle">Connecting the circle</b><p id="syncMessage">Checking the shared post server…</p></div></div>
         <button class="profile" id="profileBtn"><span class="avatar avatar-s">S</span><span><b>Sarosh</b><small>That’s you</small></span><span class="dots">•••</span></button>
       </div>
     </aside>
     <main class="main">
       <header class="topbar"><div class="crumb"><span class="crumb-icon">✳</span><span>Our space</span><span class="slash">/</span><b id="crumbName">Home</b></div><div class="top-actions"><button class="icon-button" id="searchBtn" aria-label="Search">⌕</button><button class="icon-button notification" aria-label="Notifications">♧<i></i></button><button class="invite" id="inviteBtn"><span>＋</span> Invite your people</button></div></header>
       <div class="content" id="content">
-        <section class="welcome"><div><div class="eyebrow"><span class="live-dot"></span> FIVE FRIENDS · POSTS SAVED IN THIS BROWSER</div><h1>Good to see you,<br><em id="welcomeName">friend.</em></h1><p class="subhead">A place for plans, pictures, and the stuff in between. Same browser posts stay saved here.</p></div><div class="welcome-art" aria-hidden="true"><div class="sun"></div><div class="hill hill-back"></div><div class="hill hill-front"></div><div class="art-spark s1">✳</div><div class="art-spark s2">✦</div><div class="art-label">our kind of<br>good times</div></div></section>
+        <section class="welcome"><div><div class="eyebrow" id="syncBadge"><span class="live-dot"></span> FIVE FRIENDS · SHARED CIRCLE</div><h1>Good to see you,<br><em id="welcomeName">friend.</em></h1><p class="subhead">A place for plans, pictures, and the stuff in between. Posts sync across devices when the circle server is running.</p></div><div class="welcome-art" aria-hidden="true"><div class="sun"></div><div class="hill hill-back"></div><div class="hill hill-front"></div><div class="art-spark s1">✳</div><div class="art-spark s2">✦</div><div class="art-label">our kind of<br>good times</div></div></section>
         <section class="people-row"><div class="people-label"><span class="presence"></span> YOUR PEOPLE <span class="muted">· 5</span></div><div class="people"><div class="person"><span class="avatar avatar-s">S</span><span>Sarosh</span><i class="online"></i></div><div class="person"><span class="avatar avatar-h">H</span><span>Hassan</span><i class="online"></i></div><div class="person"><span class="avatar avatar-a">A</span><span>Anthony</span><i class="online"></i></div><div class="person"><span class="avatar avatar-j">J</span><span>Jamser</span><i class="online"></i></div><div class="person"><span class="avatar avatar-r">A</span><span>Aris</span><i class="online"></i></div><button class="add-person" id="addFriend">＋</button></div><span class="people-caption">all in one place</span></section>
         <section class="quick-grid"><button class="quick-card quick-photo" data-compose="photo"><span class="quick-icon">▧</span><span><b>Share a moment</b><small>Drop a photo or video</small></span><span class="quick-arrow">↗</span></button><button class="quick-card quick-event" data-compose="event"><span class="quick-icon">▦</span><span><b>Plan a hangout</b><small>Pick a time together</small></span><span class="quick-arrow">↗</span></button><button class="quick-card quick-idea" data-compose="idea"><span class="quick-icon">✧</span><span><b>Pitch an idea</b><small>Put it out there</small></span><span class="quick-arrow">↗</span></button></section>
         <div class="columns"><section class="feed-column"><div class="section-heading"><div><div class="eyebrow">THE LATEST</div><h2>From your circle</h2></div><button class="text-button" id="filterBtn">All posts <span>⌄</span></button></div><div class="composer" id="composer"><span class="avatar avatar-s" id="composerAvatar">S</span><button class="composer-input" id="openComposer">What’s on your mind?</button><button class="composer-media" id="mediaComposer" title="Add photo or video">▧</button></div><div class="feed" id="feed"></div><button class="load-more" id="loadMore">That’s everything for now <span>✳</span></button></section>
@@ -36,5 +36,5 @@
   </div>
   <input type="file" id="fileInput" accept="image/*,video/*" multiple hidden>
   <div class="toast" id="toast" role="status"></div><div id="modalRoot"></div>
-  <script src="app.js?v=user-picker-empty-feed-20261105"></script>
+  <script src="app.js?v=live-sync-20261105"></script>
 </body></html>
