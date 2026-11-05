@@ -1,22 +1,16 @@
 # Close Circle
 
-A responsive friend-group app prototype for Sarosh, Hassan, Anthony, Jamser, and Aris.
+A responsive friend-group app for Sarosh, Hassan, Anthony, Jamser, and Aris.
 
-## Preview
+## Use
 
-The app uses plain HTML, CSS, and JavaScript with no build step. GitHub Pages serves the files publicly.
+Open the [GitHub Pages site](https://saroshaboobakker.github.io/close-circle/), choose your display name, then create posts, hangout polls, and ideas. The sample posts and plans have been removed.
 
-## Current behavior
+## Saving and privacy
 
-- Browse the sample feed, memories, hangout polls, and idea board.
-- Create posts, vote in hangout polls, and pitch ideas.
-- Posts and votes persist in the current browser and refresh across tabs on the same site.
+Posts, polls, ideas, and votes save in the browser storage for the site. Tabs using the same browser profile can see those changes. This static GitHub Pages version does not sync between different browsers or devices and does not have accounts or access controls. Anyone can open the site and inspect its public source. Do not post private photos or information.
 
-## Privacy and sharing
-
-This is a public prototype, not a private shared service. Anyone can open the Pages website and view its source. There are no user accounts, access controls, or shared server storage. Browser-saved posts do not sync to other devices or browsers. Do not enter or upload private content. The sample posts and plans are illustrative demo content.
-
-To make a real five-person private space, connect an authenticated backend with server-side authorization and private media storage before enabling group posting.
+For shared posts across all five friends and devices, connect a private authenticated backend with server-side authorization and protected media storage.
 
 ## Run locally
 

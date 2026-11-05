@@ -21,3 +21,17 @@ body{background:var(--bg);color:var(--ink);font-weight:500}
 .avatar-r{background:#d9c5a1;color:#6c4e2c}
 body,button,input,textarea{font-family:'DM Sans',sans-serif}h1,h2,h3,.brand{font-family:'Manrope',sans-serif}
 @media(max-width:820px){.sidebar{background:#1b211d}.topbar{background:#171d19}}
+
+/* Enter the app by choosing the name used on this device. */
+.user-picker-backdrop{position:fixed;inset:0;z-index:30;background:#101611e8;display:grid;place-items:center;padding:20px;backdrop-filter:blur(8px)}
+.user-picker{width:min(490px,100%);padding:30px;border:1px solid #3b493d;border-radius:18px;background:#202722;color:#edf0e8;box-shadow:0 25px 90px #0009}
+.picker-mark{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;background:#4f704b;color:#e4efcf;font-size:27px;margin-bottom:17px}
+.user-picker h2{font:800 27px Manrope,sans-serif;letter-spacing:-1px;margin:9px 0 6px}
+.user-picker>p{color:#b5beb2;font-size:12px;line-height:1.55;margin:0 0 17px}
+.member-picker{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:18px 0}
+.member-option{display:flex;align-items:center;gap:10px;padding:11px;border:1px solid #39443c;border-radius:10px;background:#171d19;color:#edf0e8;text-align:left;font:700 12px 'DM Sans',sans-serif;cursor:pointer;transition:background .15s,border-color .15s,transform .15s}
+.member-option:hover{background:#2b382d;border-color:#698260;transform:translateY(-1px)}
+.member-option .avatar{width:33px;height:33px}.member-option b{margin-left:auto;color:#93aa83;font-size:16px}
+.picker-note{display:block;color:#9ea99c;font-size:9px;line-height:1.5}
+.side-empty{font-size:9px;line-height:1.5;color:#aeb8a8;margin:4px 0 12px}
+@media(max-width:480px){.user-picker{padding:23px 18px}.member-picker{grid-template-columns:1fr}.member-option{padding:9px}}
