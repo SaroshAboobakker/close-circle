@@ -10,7 +10,13 @@ A responsive shared friend-group app for Sarosh, Hassan, Anthony, Jamser, and Ar
 
 The browser uses Supabase Realtime for updates and Supabase Storage for media. It does not save post content or media in browser storage or the project folder. The publishable key is intended for browser apps; access is controlled by the database policies in the SQL setup file.
 
-The free Supabase plan includes 500 MB of database, 1 GB of file storage, and 2 million Realtime messages. Free projects pause after one week of inactivity and resume when reopened. [Current plan details](https://supabase.com/pricing).
+## Media and storage
+
+The media upload pipeline uses the Strategy pattern: still images are resized to a maximum 1920-pixel edge and converted to WebP when that reduces size; GIF animation is kept intact, while videos upload unchanged. Photos render in a consistent 4:3 frame without cropping; videos use a 16:9 player frame and fit inside it. MP4 and WebM videos are limited to 50 MB per file.
+
+The repository adapter owns cloud upload and cleanup operations (Repository pattern). If a multi-file upload fails partway through, the already uploaded objects are removed. When the provider reports full storage, the app shows a message to remove old media in Supabase Storage. This app does not automatically create replacement Supabase projects: Free has a fixed included quota and currently permits two active projects, so cycling projects is neither an unlimited nor reliable storage plan. Keep one project as the source of truth; remove media you no longer need, or move to a storage plan/provider with more capacity if the circle grows. Free projects can pause after seven days of inactivity.
+
+See [Supabase plan details](https://supabase.com/pricing), [Storage upload limits](https://supabase.com/docs/guides/storage/uploads/file-limits), and [Free project pausing](https://supabase.com/docs/guides/platform/free-project-pausing).
 
 ## Project structure
 

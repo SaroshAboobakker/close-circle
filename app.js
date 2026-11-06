@@ -7,10 +7,48 @@ const MEMBERS = [
 ];
 const MEMBER_COLOR = Object.fromEntries(MEMBERS.map(member => [member.name, member.color]));
 const EMPTY_STATE = { posts: [], events: [], ideas: [] };
+const MAX_CLOUD_FILE_SIZE = 50 * 1024 * 1024;
 const cloudSettings = window.CLOSE_CIRCLE_CONFIG || {};
 const cloudClient = cloudSettings.supabaseUrl && cloudSettings.publishableKey && window.supabase?.createClient
   ? window.supabase.createClient(cloudSettings.supabaseUrl, cloudSettings.publishableKey)
   : null;
+
+// Strategy pattern: compress still images, preserve animation, and stream video unchanged.
+const mediaUploadStrategies = {
+  image: {
+    async prepare(file) {
+      if (file.type === 'image/gif') return file;
+      if (typeof createImageBitmap !== 'function') {
+        if (['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) return file;
+        const error = new Error('This image format is not supported. Use JPEG, PNG, GIF, or WebP.');
+        error.code = 'UNSUPPORTED_IMAGE';
+        throw error;
+      }
+      let bitmap;
+      try { bitmap = await createImageBitmap(file); }
+      catch {
+        const error = new Error('This image format could not be opened. Use JPEG, PNG, GIF, or WebP.');
+        error.code = 'UNSUPPORTED_IMAGE';
+        throw error;
+      }
+      try {
+        const scale = Math.min(1, 1920 / Math.max(bitmap.width, bitmap.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+        canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+        canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/webp', 0.82));
+        if (!blob) return file;
+        if (blob.size >= file.size && ['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) return file;
+        const name = file.name.replace(/\.[^.]+$/, '') || 'circle-photo';
+        return new File([blob], `${name}.webp`, { type: 'image/webp', lastModified: file.lastModified });
+      } finally {
+        bitmap.close?.();
+      }
+    },
+  },
+  video: { async prepare(file) { return file; } },
+};
 
 // Repository pattern keeps cloud data access separate from views and UI actions.
 const stateRepository = {
@@ -42,12 +80,25 @@ const stateRepository = {
   },
   async uploadMedia(file) {
     if (!cloudClient) throw new Error('Cloud media storage is not configured');
+    const strategy = file.type.startsWith('image/') ? mediaUploadStrategies.image : mediaUploadStrategies.video;
+    const preparedFile = await strategy.prepare(file);
+    if (preparedFile.size > MAX_CLOUD_FILE_SIZE) {
+      const error = new Error('This file is over the 50 MB upload limit. Choose a smaller video or compress it first.');
+      error.code = 'FILE_TOO_LARGE';
+      throw error;
+    }
     const bucket = cloudSettings.storageBucket || 'circle-media';
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-').slice(-120) || 'upload';
+    const safeName = preparedFile.name.replace(/[^a-zA-Z0-9._-]/g, '-').slice(-120) || 'upload';
     const path = `${newId()}-${safeName}`;
-    const { error } = await cloudClient.storage.from(bucket).upload(path, file, { contentType: file.type, upsert: false });
+    const { error } = await cloudClient.storage.from(bucket).upload(path, preparedFile, { contentType: preparedFile.type, upsert: false });
     if (error) throw error;
-    return cloudClient.storage.from(bucket).getPublicUrl(path).data.publicUrl;
+    return { url: cloudClient.storage.from(bucket).getPublicUrl(path).data.publicUrl, storedName: preparedFile.name, path };
+  },
+  async removeMedia(paths) {
+    if (!cloudClient || !paths.length) return;
+    const bucket = cloudSettings.storageBucket || 'circle-media';
+    const { error } = await cloudClient.storage.from(bucket).remove(paths);
+    if (error) throw error;
   },
 };
 
@@ -68,6 +119,18 @@ function toast(message) {
   element.classList.add('show');
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => element.classList.remove('show'), 2600);
+}
+
+function friendlyCloudError(error) {
+  const detail = `${error?.code || ''} ${error?.statusCode || ''} ${error?.message || ''}`.toLowerCase();
+  if (error?.code === 'UNSUPPORTED_IMAGE') return error.message;
+  if (error?.code === 'FILE_TOO_LARGE' || /entitytoolarge|max-file-limit|413/.test(detail)) {
+    return 'This file is over the 50 MB limit. Choose a smaller video or compress it first.';
+  }
+  if (/exceed_storage_size_quota|storage.*quota|quota.*storage|database.*size.*limit|quota.*exceed|storage.*full/.test(detail)) {
+    return 'Cloud storage is full. Remove older media in Supabase Storage to free space before uploading more.';
+  }
+  return 'Could not save to the shared cloud. Check the connection and try again.';
 }
 
 function setSyncStatus(connected) {
@@ -128,11 +191,11 @@ function save() {
       if (saveNumber === latestSave) { state = shared; render(); }
     }).catch(error => {
       setSyncStatus(false);
-      toast('Could not save to the shared cloud. Try again.');
+      toast(friendlyCloudError(error));
       console.error('Could not save Close Circle data:', error);
     });
   } catch (error) {
-    toast('Could not save to the shared cloud. Try again.');
+    toast(friendlyCloudError(error));
     console.error('Could not save Close Circle data:', error);
   }
 }
@@ -158,8 +221,8 @@ function renderFeed() {
   $('#feed').innerHTML = posts.length ? posts.map(post => `<article class="post">
     <div class="post-head">${avatar(post.author)}<div><div class="post-author">${escapeHTML(post.author)}</div><div class="post-meta">${escapeHTML(post.time)}</div></div><button class="post-menu" aria-label="More options">•••</button></div>
     <div class="post-copy">${escapeHTML(post.text)}</div>
-    ${post.kind === 'photo' ? (post.url ? `<img class="post-photo" src="${post.url}" alt="Photo shared by ${escapeHTML(post.author)}">` : `<div class="post-photo ${post.visual || ''}"></div>`) : ''}
-    ${post.kind === 'video' ? (post.url ? `<video class="post-video" src="${post.url}" controls></video>` : `<div class="video-tile"><span>▶</span><small>${escapeHTML(post.fileName || 'Video')}</small></div>`) : ''}
+    ${post.kind === 'photo' ? (post.url ? `<div class="post-media-frame"><img class="post-photo" src="${post.url}" alt="Photo shared by ${escapeHTML(post.author)}"></div>` : `<div class="post-media-frame post-photo ${post.visual || ''}"></div>`) : ''}
+    ${post.kind === 'video' ? (post.url ? `<div class="post-media-frame video-frame"><video class="post-video" src="${post.url}" controls playsinline preload="metadata"></video></div>` : `<div class="post-media-frame video-frame"><div class="video-tile"><span>▶</span><small>${escapeHTML(post.fileName || 'Video')}</small></div></div>`) : ''}
     ${post.kind === 'event' ? eventCard(post.event) : ''}
     <div class="post-actions"><button class="like-button ${post.liked ? 'liked' : ''}" data-like="${post.id}">${post.liked ? '♥' : '♡'} <span>${post.likes || 0}</span></button><button data-comment="${post.id}">◯ ${post.comments || 0} comments</button><span class="spacer"></span><span class="post-reaction">↗</span></div>
   </article>`).join('') : `<div class="empty-state"><span>✳</span>${page === 'ideas' ? 'No ideas yet. Pitch the first one.' : page === 'hangouts' ? 'No hangouts yet. Plan the first one.' : page === 'memories' ? 'No photos or videos yet. Share a moment.' : 'No posts yet. Start the conversation.'}</div>`;
@@ -237,21 +300,25 @@ function openCompose(type = 'post') {
     });
     return;
   }
-  showModal('Share with your circle', `<div class="field"><label>Say something</label><textarea name="text" placeholder="What’s on your mind?" required></textarea></div><div class="file-drop" id="dropFiles"><strong>▧ &nbsp;Add photos or videos</strong>Uploaded to the circle’s shared media storage</div><input type="file" name="media" id="modalFile" accept="image/*,video/*" multiple hidden>`, 'Post it', form => {
+  showModal('Share with your circle', `<div class="field"><label>Say something</label><textarea name="text" placeholder="What’s on your mind?" required></textarea></div><div class="file-drop" id="dropFiles"><strong>▧ &nbsp;Add photos or videos</strong>Photos are optimized · MP4/WebM videos up to 50 MB</div><input type="file" name="media" id="modalFile" accept="image/*,video/mp4,video/webm" multiple hidden>`, 'Post it', form => {
     const files = Array.from($('#modalFile').files);
     const addPost = (file, url) => state.posts.unshift({ id: newId(), createdAt: new Date().toISOString(), author: currentUser, time: 'Just now', text: form.get('text'), kind: file ? (file.type.startsWith('video') ? 'video' : 'photo') : 'note', url, fileName: file?.name, likes: 0, comments: 0 });
     if (files.length) {
-      Promise.all(files.map(async file => ({ file, url: await stateRepository.uploadMedia(file) })))
-        .then(uploads => {
+      (async () => {
+        const uploads = [];
+        try {
+          for (const file of files) uploads.push({ file, ...(await stateRepository.uploadMedia(file)) });
           uploads.forEach(({ file, url }) => addPost(file, url));
           save();
           toast('Media shared with the circle');
-        })
-        .catch(error => {
-          toast('Could not upload media. Check the cloud setup and try again.');
+        } catch (error) {
+          try { await stateRepository.removeMedia(uploads.map(upload => upload.path)); }
+          catch (cleanupError) { console.error('Could not remove incomplete media upload:', cleanupError); }
+          toast(friendlyCloudError(error));
           console.error('Could not upload Close Circle media:', error);
-        });
-      toast('Uploading to shared media storage…');
+        }
+      })();
+      toast('Optimizing and uploading to shared media storage…');
     } else {
       addPost(null, null); save(); toast('Post shared with the circle');
     }
