@@ -34,4 +34,5 @@ body,button,input,textarea{font-family:'DM Sans',sans-serif}h1,h2,h3,.brand{font
 .member-option .avatar{width:33px;height:33px}.member-option b{margin-left:auto;color:#93aa83;font-size:16px}
 .picker-note{display:block;color:#9ea99c;font-size:9px;line-height:1.5}
 .side-empty{font-size:9px;line-height:1.5;color:#aeb8a8;margin:4px 0 12px}
+.live-dot.offline{background:#c59f6b}
 @media(max-width:480px){.user-picker{padding:23px 18px}.member-picker{grid-template-columns:1fr}.member-option{padding:9px}}

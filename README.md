@@ -1,23 +1,20 @@
 # Close Circle
 
-A friend-group app for Sarosh, Hassan, Anthony, Jamser, and Aris. Posts, event polls, votes, and ideas are shared through a small Node server and saved to `data/circle.json`.
+A responsive shared friend-group app for Sarosh, Hassan, Anthony, Jamser, and Aris. GitHub Pages hosts the app; Supabase stores the shared posts, hangout polls, votes, ideas, photos, and videos.
 
-## Run the live shared version
+## Cloud setup
 
-Install Node.js 18 or newer, then run:
+1. Run `supabase-setup.sql` in the Supabase SQL Editor.
+2. Put the project's URL and **publishable** API key in `config.js`.
+3. Commit and push `config.js` with the rest of the site so GitHub Pages can connect to the cloud project.
 
-```sh
-npm start
-```
+The browser uses Supabase Realtime for updates and Supabase Storage for media. It does not save post content or media in browser storage or the project folder. The publishable key is intended for browser apps; access is controlled by the database policies in the SQL setup file.
 
-Open [http://localhost:4173](http://localhost:4173) and choose your name. The server saves the circle to disk, and connected pages refresh about every 2.5 seconds. To use it on the same Wi-Fi, open `http://<this-computer's-local-IP>:4173` from each device while this computer and server are running.
+The free Supabase plan includes 500 MB of database, 1 GB of file storage, and 2 million Realtime messages. Free projects pause after one week of inactivity and resume when reopened. [Current plan details](https://supabase.com/pricing).
 
-The server is dependency-free. Uploaded photos and videos are saved with the shared JSON state.
+## Project structure
 
-## GitHub Pages
-
-GitHub Pages serves the static showcase, but it does not run the Node server. The Pages URL therefore shows local preview mode. Run the server above for shared live posts. To make the shared version available over the internet, deploy this Node app to a Node hosting service and use that hosted URL.
-
-## Data
-
-Shared data lives in the ignored `data/circle.json` file on the computer running the server. The repository contains no post data. Delete that file to reset the shared showcase.
+- `app.js` — app behavior and cloud repository adapter
+- `config.js` — Supabase project URL, publishable key, and media bucket
+- `supabase-setup.sql` — shared-state table, merge function, access policies, Realtime publication, and media bucket
+- `index.html`, `styles.css` — app shell and visual design

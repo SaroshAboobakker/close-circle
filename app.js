@@ -7,69 +7,54 @@ const MEMBERS = [
 ];
 const MEMBER_COLOR = Object.fromEntries(MEMBERS.map(member => [member.name, member.color]));
 const EMPTY_STATE = { posts: [], events: [], ideas: [] };
-const LEGACY_POST_IDS = new Set([1, 2, 3]);
-const LEGACY_EVENT_IDS = new Set([11, 12]);
-const LEGACY_IDEAS = new Set(['Cabin weekend', 'Try that ramen place', 'Beach day before it gets cold']);
+const cloudSettings = window.CLOSE_CIRCLE_CONFIG || {};
+const cloudClient = cloudSettings.supabaseUrl && cloudSettings.publishableKey && window.supabase?.createClient
+  ? window.supabase.createClient(cloudSettings.supabaseUrl, cloudSettings.publishableKey)
+  : null;
 
-// Repository pattern keeps browser persistence separate from views and UI actions.
+// Repository pattern keeps cloud data access separate from views and UI actions.
 const stateRepository = {
-  key: 'closeCircleState',
-  read() {
-    try {
-      const stored = JSON.parse(localStorage.getItem(this.key));
-      if (!stored || typeof stored !== 'object') return structuredClone(EMPTY_STATE);
-      const cleaned = {
-        posts: Array.isArray(stored.posts) ? stored.posts.filter(post =>
-          !LEGACY_POST_IDS.has(Number(post.id)) &&
-          !(post.kind === 'event' && LEGACY_EVENT_IDS.has(Number(post.event?.id)))
-        ) : [],
-        events: Array.isArray(stored.events) ? stored.events.filter(event => !LEGACY_EVENT_IDS.has(Number(event.id))) : [],
-        ideas: Array.isArray(stored.ideas) ? stored.ideas.filter(idea => !LEGACY_IDEAS.has(idea.title)) : [],
-      };
-      if (JSON.stringify(stored) !== JSON.stringify(cleaned)) this.write(cleaned);
-      return cleaned;
-    } catch {
-      return structuredClone(EMPTY_STATE);
-    }
-  },
-  write(value) {
-    localStorage.setItem(this.key, JSON.stringify(value));
-  },
   async load() {
-    const local = this.read();
-    try {
-      const response = await fetch('/api/state', { cache: 'no-store' });
-      if (!response.ok) throw new Error(`Shared server returned ${response.status}`);
-      const remote = await response.json();
-      setSyncStatus(true);
-      const shared = remote.state || EMPTY_STATE;
-      const combined = combineStates(shared, local);
-      if (hasContent(local)) {
-        const imported = await this.push(combined);
-        this.write(imported);
-        return imported;
-      }
-      this.write(shared);
-      return shared;
-    } catch {
+    if (!cloudClient) {
       setSyncStatus(false);
-      return local;
+      return EMPTY_STATE;
+    }
+    try {
+      const { data, error } = await cloudClient.from('circle_state').select('state').eq('id', 'main').maybeSingle();
+      if (error) throw error;
+      if (data?.state) {
+        setSyncStatus(true);
+        return data.state;
+      }
+      return await this.push(EMPTY_STATE);
+    } catch (error) {
+      setSyncStatus(false);
+      console.error('Could not load the shared circle:', error);
+      return EMPTY_STATE;
     }
   },
   async push(value) {
-    const response = await fetch('/api/state', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value),
-    });
-    if (!response.ok) throw new Error(`Shared server returned ${response.status}`);
-    const result = await response.json();
+    if (!cloudClient) throw new Error('Cloud storage is not configured');
+    const { data, error } = await cloudClient.rpc('merge_circle_state', { incoming_state: value });
+    if (error) throw error;
     setSyncStatus(true);
-    return result.state;
+    return data;
+  },
+  async uploadMedia(file) {
+    if (!cloudClient) throw new Error('Cloud media storage is not configured');
+    const bucket = cloudSettings.storageBucket || 'circle-media';
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-').slice(-120) || 'upload';
+    const path = `${newId()}-${safeName}`;
+    const { error } = await cloudClient.storage.from(bucket).upload(path, file, { contentType: file.type, upsert: false });
+    if (error) throw error;
+    return cloudClient.storage.from(bucket).getPublicUrl(path).data.publicUrl;
   },
 };
 
 let state = EMPTY_STATE;
 let currentUser = null;
 let page = 'home';
+let latestSave = 0;
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({
@@ -85,37 +70,14 @@ function toast(message) {
   toast.timer = setTimeout(() => element.classList.remove('show'), 2600);
 }
 
-function hasContent(value) {
-  return Boolean(value.posts?.length || value.events?.length || value.ideas?.length);
-}
-
-function combineStates(remote, local) {
-  const combine = (left = [], right = []) => {
-    const records = new Map(left.map(item => [String(item.id), item]));
-    for (const item of right) {
-      const previous = records.get(String(item.id));
-      records.set(String(item.id), previous ? {
-        ...previous, ...item,
-        ...(previous.votes || item.votes ? { votes: { ...previous.votes, ...item.votes } } : {}),
-      } : item);
-    }
-    return [...records.values()];
-  };
-  return {
-    posts: combine(remote.posts, local.posts),
-    events: combine(remote.events, local.events),
-    ideas: combine(remote.ideas, local.ideas),
-  };
-}
-
 function setSyncStatus(connected) {
   const title = $('#syncTitle');
   const message = $('#syncMessage');
   const badge = $('#syncBadge');
   if (!title || !message || !badge) return;
-  title.textContent = connected ? 'Live circle' : 'Local preview';
-  message.textContent = connected ? 'Changes sync across connected devices.' : 'Start the circle server to share posts across devices.';
-  badge.innerHTML = `<span class="live-dot${connected ? '' : ' offline'}"></span> FIVE FRIENDS · ${connected ? 'LIVE SYNC' : 'LOCAL PREVIEW'}`;
+  title.textContent = connected ? 'Live circle' : cloudClient ? 'Reconnecting to cloud' : 'Cloud setup pending';
+  message.textContent = connected ? 'Posts and media sync across devices.' : cloudClient ? 'Trying to reconnect to shared posts.' : 'Connect the shared cloud database to start posting.';
+  badge.innerHTML = `<span class="live-dot${connected ? '' : ' offline'}"></span> FIVE FRIENDS · ${connected ? 'LIVE SYNC' : 'CLOUD NOT CONNECTED'}`;
 }
 
 function avatar(name, extra = '') {
@@ -155,12 +117,22 @@ function showUserPicker() {
 }
 
 function save() {
+  if (!cloudClient) {
+    toast('Cloud setup is not complete yet');
+    return;
+  }
   try {
-    stateRepository.write(state);
     render();
-    stateRepository.push(state).catch(() => setSyncStatus(false));
+    const saveNumber = ++latestSave;
+    stateRepository.push(state).then(shared => {
+      if (saveNumber === latestSave) { state = shared; render(); }
+    }).catch(error => {
+      setSyncStatus(false);
+      toast('Could not save to the shared cloud. Try again.');
+      console.error('Could not save Close Circle data:', error);
+    });
   } catch (error) {
-    toast('This browser ran out of storage. Try a smaller media file.');
+    toast('Could not save to the shared cloud. Try again.');
     console.error('Could not save Close Circle data:', error);
   }
 }
@@ -265,17 +237,21 @@ function openCompose(type = 'post') {
     });
     return;
   }
-  showModal('Share with your circle', `<div class="field"><label>Say something</label><textarea name="text" placeholder="What’s on your mind?" required></textarea></div><div class="file-drop" id="dropFiles"><strong>▧ &nbsp;Add photos or videos</strong>Choose files from your device · saved in this browser</div><input type="file" name="media" id="modalFile" accept="image/*,video/*" multiple hidden>`, 'Post it', form => {
+  showModal('Share with your circle', `<div class="field"><label>Say something</label><textarea name="text" placeholder="What’s on your mind?" required></textarea></div><div class="file-drop" id="dropFiles"><strong>▧ &nbsp;Add photos or videos</strong>Uploaded to the circle’s shared media storage</div><input type="file" name="media" id="modalFile" accept="image/*,video/*" multiple hidden>`, 'Post it', form => {
     const files = Array.from($('#modalFile').files);
     const addPost = (file, url) => state.posts.unshift({ id: newId(), createdAt: new Date().toISOString(), author: currentUser, time: 'Just now', text: form.get('text'), kind: file ? (file.type.startsWith('video') ? 'video' : 'photo') : 'note', url, fileName: file?.name, likes: 0, comments: 0 });
     if (files.length) {
-      files.forEach(file => {
-        const reader = new FileReader();
-        reader.onload = () => { addPost(file, reader.result); save(); };
-        reader.onerror = () => toast(`Could not read ${file.name}`);
-        reader.readAsDataURL(file);
-      });
-      toast('Saving your post…');
+      Promise.all(files.map(async file => ({ file, url: await stateRepository.uploadMedia(file) })))
+        .then(uploads => {
+          uploads.forEach(({ file, url }) => addPost(file, url));
+          save();
+          toast('Media shared with the circle');
+        })
+        .catch(error => {
+          toast('Could not upload media. Check the cloud setup and try again.');
+          console.error('Could not upload Close Circle media:', error);
+        });
+      toast('Uploading to shared media storage…');
     } else {
       addPost(null, null); save(); toast('Post shared with the circle');
     }
@@ -324,14 +300,13 @@ $('#searchBtn').onclick = () => {
 $('#filterBtn').onclick = () => toast('Showing all posts');
 $('#loadMore').onclick = () => toast('You’re all caught up');
 async function refreshSharedState() {
+  if (!cloudClient) return;
   try {
-    const response = await fetch('/api/state', { cache: 'no-store' });
-    if (!response.ok) throw new Error('Shared server is unavailable');
-    const remote = await response.json();
-    const shared = remote.state || EMPTY_STATE;
+    const { data, error } = await cloudClient.from('circle_state').select('state').eq('id', 'main').maybeSingle();
+    if (error) throw error;
+    const shared = data?.state || EMPTY_STATE;
     if (JSON.stringify(shared) !== JSON.stringify(state)) {
       state = shared;
-      stateRepository.write(state);
       render();
     }
     setSyncStatus(true);
@@ -344,11 +319,16 @@ async function startApp() {
   state = await stateRepository.load();
   render();
   showUserPicker();
-  setInterval(refreshSharedState, 2500);
+  if (cloudClient) {
+    cloudClient.channel('circle-state-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'circle_state', filter: 'id=eq.main' }, payload => {
+        const shared = payload.new?.state;
+        if (shared && JSON.stringify(shared) !== JSON.stringify(state)) { state = shared; render(); }
+      })
+      .subscribe(status => setSyncStatus(status === 'SUBSCRIBED'));
+    setInterval(refreshSharedState, 15000);
+  }
 }
 
-window.addEventListener('storage', event => {
-  if (event.key === stateRepository.key) { state = stateRepository.read(); render(); }
-});
-window.addEventListener('focus', () => { state = stateRepository.read(); render(); refreshSharedState(); });
+window.addEventListener('focus', refreshSharedState);
 startApp();
